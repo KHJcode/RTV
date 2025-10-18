@@ -50,8 +50,11 @@ def make_pix2pix_model(name, input_nc, output_nc=3, model_name='pix2pixHD',ckpt_
 
 class FrameProcessor:
     def __init__(self, garment_name_list,ckpt_dir=None):
-        self.smpl_regressor = SMPL_Regressor(use_bev=True)
+        # Use ROMP-only regressor to avoid BEV's SMIL dependency on setups without SMIL assets.
+        self.smpl_regressor = SMPL_Regressor(use_bev=False)
         self.viton_model = None
+        self.use_cuda = torch.cuda.is_available()
+        self.device = torch.device("cuda:0" if self.use_cuda else "cpu")
         self.ckpt_dir = ckpt_dir
         self.densepose_extractor = DensePoseExtractor()
         self.upper_body = UpperBodySMPL()
@@ -77,22 +80,26 @@ class FrameProcessor:
 
     def switch_to_target_garment(self,garment_id):
         self.lock.acquire()
-        print("Loading from CPU target garment id: ", garment_id)
-        id = garment_id
-        if self.viton_model_list[id] is None and id >= 0:
-            print("Loading from disk target garment id: ", garment_id)
-            self.load_one_models(self.garment_name_list[id])
-        old_model = self.viton_model
-        new_model=self.viton_model_list[id].to('cuda:0') if garment_id>=0 else None
-        print("Finished")
-        if self.viton_model is not None:
-            del self.viton_model
-        self.viton_model = new_model
-        if old_model is not None:
-            old_model = old_model.to('cpu')
-            del old_model
-            torch.cuda.empty_cache()
-        self.lock.release()
+        try:
+            print("Loading target garment id: ", garment_id)
+            old_model = self.viton_model
+            new_model = None
+            if garment_id >= 0:
+                if self.viton_model_list[garment_id] is None:
+                    print("Loading from disk target garment id: ", garment_id)
+                    self.load_one_models(self.garment_name_list[garment_id])
+                new_model = self.viton_model_list[garment_id].to(self.device)
+            if self.viton_model is not None:
+                del self.viton_model
+            self.viton_model = new_model
+            if old_model is not None:
+                old_model = old_model.to('cpu')
+                del old_model
+                if self.use_cuda:
+                    torch.cuda.empty_cache()
+            print("Model switch complete.")
+        finally:
+            self.lock.release()
 
 
     def set_target_garment(self, target_id):
@@ -143,13 +150,15 @@ class FrameProcessor:
         vm_tensor = vm_tensor[:, [2, 1, 0], :, :]
         dp_tensor = util.im2tensor(roi_dpi_img) * 2.0 - 1.0
         self.lock.acquire()
-        with torch.no_grad():
-            if self.viton_model is not None:
-                target_tensor = self.viton_model.forward(torch.cat([vm_tensor, dp_tensor], 1).cuda())
-                self.lock.release()
-            else:
-                self.lock.release()
+        try:
+            if self.viton_model is None:
                 return input_frame
+            with torch.no_grad():
+                input_tensor = torch.cat([vm_tensor, dp_tensor], 1).to(self.device)
+                target_tensor = self.viton_model.forward(input_tensor)
+                target_tensor = target_tensor.to('cpu')
+        finally:
+            self.lock.release()
         roi_target = util.tensor2im(target_tensor[0, [0, 1, 2], :, :], normalize=True, rgb=False)
         roi_alpha = (target_tensor[0, 3, :, :].clamp(min=0.0, max=1.0).cpu().numpy() * 255).astype(np.uint8)
 

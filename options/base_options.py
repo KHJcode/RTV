@@ -81,7 +81,11 @@ class BaseOptions():
         
         # set gpu ids
         if len(self.opt.gpu_ids) > 0:
-            torch.cuda.set_device(self.opt.gpu_ids[0])
+            if torch.cuda.is_available():
+                torch.cuda.set_device(self.opt.gpu_ids[0])
+            else:
+                # fall back to CPU when CUDA is unavailable
+                self.opt.gpu_ids = []
 
         args = vars(self.opt)
         if show_info:

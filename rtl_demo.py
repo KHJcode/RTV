@@ -21,30 +21,81 @@ class VitonThread(QThread):
 
     def __init__(self,garment_id_list):
         super().__init__()
+        self.frame_processor = None
+        self.running = False
         self.cap = self.get_camera()
-        if not self.cap.isOpened():
-            print("Failed to open the selected camera.")
+        if self.cap is None or not self.cap.isOpened():
+            print("Failed to open the selected camera. Please ensure a webcam or OBS virtual camera is active.")
+            self.cap = None
+            self.ready = False
+            return
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.running = True
+        self.ready = True
+        self.rotate_code = self._get_rotation_code()
         self.frame_processor = FrameProcessor(garment_id_list)
 
     def set_taregt_id(self, id):
         print(id)
-        self.frame_processor.set_target_garment(id)
+        if self.frame_processor is not None:
+            self.frame_processor.set_target_garment(id)
 
     def get_camera(self):
-        cap = cv2.VideoCapture(1)
+        preferred_indexes = []
+        env_index = os.getenv("RTV_CAMERA_INDEX")
+        if env_index is not None:
+            try:
+                preferred_indexes.append(int(env_index))
+            except ValueError:
+                print(f"Invalid RTV_CAMERA_INDEX value: {env_index}")
 
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(0)
-        return cap
+        available_cameras = list_available_cameras()
+        if available_cameras:
+            print("Detected cameras:")
+            for cam_id, name in available_cameras:
+                print(f"  index {cam_id}: {name}")
+                if cam_id not in preferred_indexes:
+                    preferred_indexes.append(cam_id)
+
+        # fallbacks used in the original demo
+        for fallback in [1, 0]:
+            if fallback not in preferred_indexes:
+                preferred_indexes.append(fallback)
+
+        backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+        for idx in preferred_indexes:
+            cap = cv2.VideoCapture(idx, backend)
+            if cap.isOpened():
+                print(f"Using camera index {idx}")
+                return cap
+            cap.release()
+        return None
+
+    def _get_rotation_code(self):
+        env_val = os.getenv("RTV_CAMERA_ROTATE")
+        if env_val is not None:
+            env_val = env_val.strip()
+            mapping = {
+                "90": cv2.ROTATE_90_CLOCKWISE,
+                "-90": cv2.ROTATE_90_COUNTERCLOCKWISE,
+                "180": cv2.ROTATE_180,
+                "0": None,
+            }
+            if env_val in mapping:
+                return mapping[env_val]
+            else:
+                print(f"Unsupported RTV_CAMERA_ROTATE value: {env_val}. Expected one of {list(mapping.keys())}.")
+        return None
 
     def run(self):
+        if not self.ready:
+            return
         while self.running:
             ret, frame = self.cap.read()
 
             if ret:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                if self.rotate_code is not None:
+                    frame = cv2.rotate(frame, self.rotate_code)
                 ## ichao: remove flip (Nov 13, 2024)
                 frame=cv2.flip(frame, 1)
                 frame=resize_img(frame,max_height=1024)
@@ -60,7 +111,8 @@ class VitonThread(QThread):
 
     def stop(self):
         self.running = False
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
 
 class CameraApp(QMainWindow):
     def __init__(self):
@@ -143,8 +195,17 @@ class CameraApp(QMainWindow):
             garment_name_list[i] = garment_name_list[i]+'_vmsdp2ta'
 
         self.viton_thread = VitonThread(garment_name_list)
-        self.viton_thread.frameCaptured.connect(self.update_image)
-        self.viton_thread.start()
+        if self.viton_thread.ready:
+            self.viton_thread.frameCaptured.connect(self.update_image)
+            self.viton_thread.start()
+        else:
+            self.image_label.setText(
+                "Camera stream not available.\n"
+                "Start your OBS virtual camera or connect a webcam, then restart the app.\n"
+                "You can also set RTV_CAMERA_INDEX to select a specific device.\n"
+                "Set RTV_CAMERA_ROTATE to 90/-90/180 if orientation needs adjustment."
+            )
+            self.list_widget.setEnabled(False)
 
     def eventFilter(self, obj, event):
         if (event.type() == QEvent.KeyPress):
@@ -195,9 +256,10 @@ class CameraApp(QMainWindow):
         self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def closeEvent(self, event):
-        self.viton_thread.stop()
-        self.viton_thread.wait()
-        print("Viton thread stopped")
+        if getattr(self.viton_thread, "ready", False):
+            self.viton_thread.stop()
+            self.viton_thread.wait()
+            print("Viton thread stopped")
         event.accept()
 
 if __name__ == "__main__":
