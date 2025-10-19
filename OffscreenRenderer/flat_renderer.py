@@ -1,10 +1,14 @@
 import argparse
 import os
 
-os.environ["PYOPENGL_PLATFORM"] = "egl"
+if "PYOPENGL_PLATFORM" not in os.environ:
+    os.environ["PYOPENGL_PLATFORM"] = "egl" if os.name != "nt" else "win32"
 
 import numpy as np
-import OpenGL.EGL as egl
+try:
+    import OpenGL.EGL as egl
+except Exception:  # pragma: no cover - fallback when EGL unavailable
+    egl = None
 from OpenGL.GL import *
 from OpenGL.GL import shaders
 from PIL import Image
@@ -22,8 +26,13 @@ OpenglTriangleIndexType = GL_UNSIGNED_INT
 
 class FlatRenderer:
     def __init__(self, height=512, width=512, texPath="./assets/measurement.png", back_black=False, phong=False):
-        self.display, self.egl_surf, self.opengl_context = create_opengl_context(
-            (width, height))
+        ctx_info = create_opengl_context((width, height))
+        self._gl_backend = ctx_info["backend"]
+        self.display = ctx_info.get("display")
+        self.egl_surf = ctx_info.get("surface")
+        self.opengl_context = ctx_info.get("context")
+        self._window = ctx_info.get("window")
+        self._cleanup = ctx_info.get("cleanup")
         self.height = height
         self.width = width
 
@@ -53,9 +62,17 @@ class FlatRenderer:
         self.render_frame_object = init_frame_buffer(self.rendered_image)
 
     def __del__(self):
-        #glDeleteFramebuffers(1, self.render_frame_object)
-        egl.eglDestroySurface(self.display, self.egl_surf)
-        egl.eglDestroyContext(self.display, self.opengl_context)
+        if self._gl_backend == "egl" and egl is not None:
+            egl.eglDestroySurface(self.display, self.egl_surf)
+            egl.eglDestroyContext(self.display, self.opengl_context)
+        elif self._gl_backend == "pyglet":
+            if self._window is not None:
+                self._window.close()
+        if self._cleanup is not None:
+            try:
+                self._cleanup()
+            except Exception:
+                pass
 
     def render(self, vertex_positions, vertex_texcoord, face_indices, matrix_model=None, matrix_view=None,
                matrix_proj=None):

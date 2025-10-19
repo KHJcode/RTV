@@ -1,25 +1,31 @@
-from typing import Tuple
+from typing import Tuple, Dict, Any
 import ctypes
+import os
 
 import numpy as np
-import OpenGL.EGL as egl
-from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
-from OpenGL.EGL.EXT.device_base import egl_get_devices
-from OpenGL import error
+try:
+    import OpenGL.EGL as egl
+    from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
+    from OpenGL.EGL.EXT.device_base import egl_get_devices
+    from OpenGL import error
+except Exception:  # pragma: no cover - EGL not available
+    egl = None
 from OpenGL.GL import *
 
 
 def create_initialized_headless_egl_display():
-    """Creates an initialized EGL display directly on a device.
-    """
-    for device in egl_get_devices():
+    """Creates an initialized EGL display directly on a device."""
+    if egl is None:
+        return None
+    try:
+        devices = egl_get_devices()
+    except Exception:
+        return None
+    for device in devices:
         display = egl.eglGetPlatformDisplayEXT(
             EGL_PLATFORM_DEVICE_EXT, device, None)
 
         if display != egl.EGL_NO_DISPLAY and egl.eglGetError() == egl.EGL_SUCCESS:
-            # `eglInitialize` may or may not raise an exception on failure depending
-            # on how PyOpenGL is configured. We therefore catch a `GLError` and also
-            # manually check the output of `eglGetError()` here.
             try:
                 initialized = egl.eglInitialize(display, None, None)
             except error.GLError:
@@ -27,23 +33,13 @@ def create_initialized_headless_egl_display():
             else:
                 if initialized == egl.EGL_TRUE and egl.eglGetError() == egl.EGL_SUCCESS:
                     return display
-    return egl.EGL_NO_DISPLAY
+    return None
 
 
-def create_opengl_context(surface_size: Tuple[int, int]):
-    """Create offscreen OpenGL context and make it current.
-
-    Users are expected to directly use EGL API in case more advanced
-
-    context management is required.
-
-    Args:
-        surface_size: (width, height), size of the offscreen rendering surface.
-
-    """
+def _create_egl_context(surface_size: Tuple[int, int]) -> Dict[str, Any]:
     egl_display = create_initialized_headless_egl_display()
 
-    if egl_display == egl.EGL_NO_DISPLAY:
+    if egl_display in (None, egl.EGL_NO_DISPLAY):
         raise RuntimeError('Cannot initialize a headless EGL display.')
 
     major, minor = egl.EGLint(), egl.EGLint()
@@ -84,7 +80,71 @@ def create_opengl_context(surface_size: Tuple[int, int]):
 
     egl.eglMakeCurrent(egl_display, egl_surf, egl_surf, egl_context)
 
-    return egl_display, egl_surf, egl_context
+    return {
+        "backend": "egl",
+        "display": egl_display,
+        "surface": egl_surf,
+        "context": egl_context,
+        "window": None,
+        "cleanup": None,
+    }
+
+
+def _create_pyglet_context(surface_size: Tuple[int, int]) -> Dict[str, Any]:
+    width, height = surface_size
+    try:
+        import pyglet
+        from pyglet import gl as pyglet_gl
+    except ImportError as exc:  # pragma: no cover - dependency missing
+        raise RuntimeError("pyglet is required for OpenGL context creation on this platform.") from exc
+
+    config = None
+    try:
+        config = pyglet.gl.Config(
+            double_buffer=False,
+            depth_size=24,
+            alpha_size=8,
+            sample_buffers=0,
+            samples=0,
+            stencil_size=8,
+        )
+    except Exception:
+        config = None
+
+    window = pyglet.window.Window(
+        width=width,
+        height=height,
+        visible=False,
+        config=config,
+    )
+    window.switch_to()
+    pyglet_gl.glViewport(0, 0, width, height)
+
+    def _cleanup():
+        try:
+            window.close()
+        except Exception:
+            pass
+
+    return {
+        "backend": "pyglet",
+        "display": None,
+        "surface": None,
+        "context": window.context,
+        "window": window,
+        "cleanup": _cleanup,
+    }
+
+
+def create_opengl_context(surface_size: Tuple[int, int]) -> Dict[str, Any]:
+    """Create offscreen OpenGL context and make it current, returning backend info."""
+    prefer_egl = os.environ.get("PYOPENGL_PLATFORM", "").lower() == "egl"
+    if prefer_egl and egl is not None:
+        try:
+            return _create_egl_context(surface_size)
+        except Exception as exc:
+            print(f"[gl_utils] EGL context creation failed ({exc}); falling back to pyglet.")
+    return _create_pyglet_context(surface_size)
 
 
 def init_frame_buffer(frame_image: np.ndarray, num_samples: int = 16):

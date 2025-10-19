@@ -81,6 +81,11 @@ class DensePoseExtractor(DumpAction):
         self.cfg = './model/DensePose/configs/densepose_rcnn_R_50_FPN_s1x.yaml'
         self.model = 'https://dl.fbaipublicfiles.com/densepose/densepose_rcnn_R_50_FPN_s1x/165712039/model_final_162be9.pkl'
         cfg = self.dp_model.setup_config(self.cfg, self.model, self.args, opts)
+        cfg = cfg.clone()
+        cfg.defrost()  # allow overriding device before freezing again
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        cfg.MODEL.DEVICE = "cuda" if self.device.type == "cuda" else "cpu"
+        cfg.freeze()
         self.predictor = DefaultPredictor(cfg)
         self.palette = np.array(get_palette(25), np.uint8).reshape(-1,3)
 
@@ -111,7 +116,7 @@ class DensePoseExtractor(DumpAction):
 
         #convert label to float
         labels = labels.float()/24.0
-        output_tensor = torch.zeros(3, raw_h, raw_w).cuda()
+        output_tensor = torch.zeros(3, raw_h, raw_w, device=self.device)
         output_tensor[0,y_min:y_min+mask_h,x_min:x_min+mask_w]=labels
         output_tensor[1:, y_min:y_min + mask_h, x_min:x_min + mask_w] = uv
 
@@ -165,7 +170,7 @@ class DensePoseExtractor(DumpAction):
         soft_map = F.interpolate(fine_segm[[max_id]], (h, w), mode="bilinear", align_corners=False)#* (coarse_segm_bbox[[max_id]] > 0).long()
         soft_map = soft_map[0]#CHW
         raw_h, raw_w, _ = img.shape
-        output_map = torch.zeros((25,raw_h,raw_w), dtype=torch.float32).cuda()
+        output_map = torch.zeros((25, raw_h, raw_w), dtype=torch.float32, device=self.device)
         #print(h,w)
         #print(soft_map.shape)
         #print(output_map[:, y_min:y_min + h, x_min:x_min + w].shape)
@@ -223,7 +228,7 @@ class DensePoseExtractor(DumpAction):
 
         #convert label to float
         labels = labels.float()#/24.0
-        output_tensor = torch.zeros(3, raw_h, raw_w).cuda()
+        output_tensor = torch.zeros(3, raw_h, raw_w, device=self.device)
         output_tensor[0,y_min:y_min+mask_h,x_min:x_min+mask_w]=labels
         output_tensor[1:, y_min:y_min + mask_h, x_min:x_min + mask_w] = uv
         output_tensor[1:,:]*=255.0
@@ -333,7 +338,7 @@ class DensePoseExtractor(DumpAction):
 
         #convert label to float
         labels = labels.float()#/24.0
-        output_tensor = torch.zeros(3, raw_h, raw_w).cuda()
+        output_tensor = torch.zeros(3, raw_h, raw_w, device=self.device)
         output_tensor[0,y_min:y_min+mask_h,x_min:x_min+mask_w]=labels
         output_tensor[1:, y_min:y_min + mask_h, x_min:x_min + mask_w] = uv
         output_tensor[1:,:]*=255.0
