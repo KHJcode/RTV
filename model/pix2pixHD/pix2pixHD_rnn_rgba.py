@@ -193,6 +193,21 @@ class Pix2PixHD_RNN_RGBA(Pix2PixHDModel):
         return [self.loss_filter(loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, loss_D_real, loss_D_fake),
                 None if not infer else fake_output]
 
+    def forward(self, heatmaps, image, infer=False):
+        """
+        Override the base forward so the RNN generator receives a time axis.
+        Accept both 4D (B,C,H,W) and 5D (B,T,C,H,W) tensors.
+        """
+        if heatmaps.dim() == 4:
+            heatmaps = heatmaps.unsqueeze(1)
+        if image.dim() == 4:
+            image = image.unsqueeze(1)
+
+        losses, fake_seq = self.train_forward(heatmaps, image, infer=infer)
+        if fake_seq is not None and fake_seq.dim() == 5:
+            fake_seq = fake_seq[:, -1, :, :, :]
+
+        return losses, fake_seq
 
 
 
