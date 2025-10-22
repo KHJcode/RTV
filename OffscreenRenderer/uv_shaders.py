@@ -20,7 +20,6 @@ FRAGMENT_SHADER = """
 #version 330 core
 in vec2      v_texcoord; // Interpolated fragment texture coordinates (in)
 out vec4 color;
-out float gl_FragDepth;
 uniform sampler2D u_texture;  // Texture 
 void main()
 {
