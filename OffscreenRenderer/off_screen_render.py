@@ -1,14 +1,21 @@
-from OpenGL.GL import *
 import numpy as np
 from PIL import Image
 
+try:
+    from OpenGL.GL import *
+    GL_AVAILABLE = True
+except Exception:  # pragma: no cover - GL import failure
+    GL_AVAILABLE = False
+
 VertextAttribType = np.float32
 IndexType = np.uint32
-OpenglVertexAttrType = GL_FLOAT
-OpenglTriangleIndexType = GL_UNSIGNED_INT
+OpenglVertexAttrType = GL_FLOAT if GL_AVAILABLE else None  # type: ignore
+OpenglTriangleIndexType = GL_UNSIGNED_INT if GL_AVAILABLE else None  # type: ignore
 
 
 def generate_vao(vertex_positions: np.ndarray, texcoord: np.ndarray, face_indices: np.ndarray):
+    if not GL_AVAILABLE:
+        raise RuntimeError("OpenGL is not available to generate VAO.")
     assert vertex_positions.ndim == 2
     assert vertex_positions.shape[1] == 3
     assert vertex_positions.shape[0] == texcoord.shape[0]
@@ -55,6 +62,8 @@ def generate_vao(vertex_positions: np.ndarray, texcoord: np.ndarray, face_indice
 
 
 def set_shader_params(shader, matrix_model=None, matrix_view=None, matrix_proj=None):
+    if not GL_AVAILABLE:
+        raise RuntimeError("OpenGL is not available to set shader parameters.")
     matrix_proj_loc = glGetUniformLocation(shader, "projection")
     if matrix_proj is None:
         matrix_proj = np.eye(4)
@@ -73,6 +82,8 @@ def set_shader_params(shader, matrix_model=None, matrix_view=None, matrix_proj=N
 import time
 
 def read_texture(filename):
+    if not GL_AVAILABLE:
+        raise RuntimeError("OpenGL is not available to upload textures.")
     img = Image.open(filename)
     img_np = np.array(img)
     img_np = img_np[:, :, [2,1,0]]
@@ -96,6 +107,8 @@ def read_texture(filename):
 
 
 def render(gl_primitive_type, num_elements: int, texID=None):
+    if not GL_AVAILABLE:
+        raise RuntimeError("OpenGL is not available to render primitives.")
     if texID is not None:
         glEnable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, texID)

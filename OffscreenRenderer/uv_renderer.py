@@ -2,14 +2,12 @@ import argparse
 import os
 import cv2
 
-if "PYOPENGL_PLATFORM" not in os.environ:
-    os.environ["PYOPENGL_PLATFORM"] = "egl" if os.name != "nt" else "win32"
+from OffscreenRenderer.platform_utils import ensure_pyopengl_platform, load_egl_module
+
+ensure_pyopengl_platform()
 
 import numpy as np
-try:
-    import OpenGL.EGL as egl
-except Exception:  # pragma: no cover
-    egl = None
+egl = load_egl_module()
 from OpenGL.GL import *
 from OpenGL.GL import shaders
 from PIL import Image

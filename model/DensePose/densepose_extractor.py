@@ -41,6 +41,7 @@ from densepose.vis.extractor import (
     create_extractor,
 )
 from .apply_net import create_argument_parser, DumpAction
+from util.torch_device import ensure_compatible_cuda
 
 import torch
 import torch.nn.functional as F
@@ -83,7 +84,8 @@ class DensePoseExtractor(DumpAction):
         cfg = self.dp_model.setup_config(self.cfg, self.model, self.args, opts)
         cfg = cfg.clone()
         cfg.defrost()  # allow overriding device before freezing again
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = ensure_compatible_cuda()
+        self.device = torch.device("cuda" if device.type == "cuda" else "cpu")
         cfg.MODEL.DEVICE = "cuda" if self.device.type == "cuda" else "cpu"
         cfg.freeze()
         self.predictor = DefaultPredictor(cfg)

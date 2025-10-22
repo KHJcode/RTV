@@ -1,9 +1,13 @@
+import os
+import sys
 import json
 import numpy as np
 import cv2
-import os
-import sys
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
+
+from util.torch_device import ensure_compatible_cuda
+
+ensure_compatible_cuda()
 
 from tqdm import tqdm
 

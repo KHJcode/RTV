@@ -2,15 +2,31 @@ from typing import Tuple, Dict, Any
 import ctypes
 import os
 
+from OffscreenRenderer.platform_utils import ensure_pyopengl_platform, load_egl_module
+
+ensure_pyopengl_platform()
+
 import numpy as np
+egl = load_egl_module()
+if egl is not None:
+    try:
+        from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
+        from OpenGL.EGL.EXT.device_base import egl_get_devices
+        from OpenGL import error
+    except Exception:  # pragma: no cover - EGL extension missing
+        egl = None
+        EGL_PLATFORM_DEVICE_EXT = None  # type: ignore
+        egl_get_devices = None  # type: ignore
+        error = None  # type: ignore
+else:
+    EGL_PLATFORM_DEVICE_EXT = None  # type: ignore
+    egl_get_devices = None  # type: ignore
+    error = None  # type: ignore
 try:
-    import OpenGL.EGL as egl
-    from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
-    from OpenGL.EGL.EXT.device_base import egl_get_devices
-    from OpenGL import error
-except Exception:  # pragma: no cover - EGL not available
-    egl = None
-from OpenGL.GL import *
+    from OpenGL.GL import *
+    GL_AVAILABLE = True
+except Exception:  # pragma: no cover - OpenGL import failure
+    GL_AVAILABLE = False
 
 
 def create_initialized_headless_egl_display():
@@ -138,6 +154,8 @@ def _create_pyglet_context(surface_size: Tuple[int, int]) -> Dict[str, Any]:
 
 def create_opengl_context(surface_size: Tuple[int, int]) -> Dict[str, Any]:
     """Create offscreen OpenGL context and make it current, returning backend info."""
+    if not GL_AVAILABLE:
+        raise RuntimeError("PyOpenGL GL bindings are unavailable.")
     prefer_egl = os.environ.get("PYOPENGL_PLATFORM", "").lower() == "egl"
     if prefer_egl and egl is not None:
         try:
@@ -150,6 +168,8 @@ def create_opengl_context(surface_size: Tuple[int, int]) -> Dict[str, Any]:
 def init_frame_buffer(frame_image: np.ndarray, num_samples: int = 16):
     """Create an FBO and assign a texture buffer to it for the purpose of offscreen rendering to the texture buffer
     """
+    if not GL_AVAILABLE:
+        raise RuntimeError("OpenGL framebuffer initialization requested without GL support.")
     samples = min(num_samples, GL_SAMPLES - 1)
 
     width = frame_image.shape[1]

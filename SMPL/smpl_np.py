@@ -1,8 +1,10 @@
 import pickle
 import os
 
-if "PYOPENGL_PLATFORM" not in os.environ:
-    os.environ["PYOPENGL_PLATFORM"] = "egl" if os.name != "nt" else "win32"
+from OffscreenRenderer.platform_utils import ensure_pyopengl_platform
+
+ensure_pyopengl_platform()
+
 import numpy as np
 #import pyrender
 import trimesh

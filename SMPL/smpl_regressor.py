@@ -1,3 +1,4 @@
+import copy
 import cv2
 import romp
 from romp import ROMP
@@ -13,6 +14,7 @@ from bev import BEV
 from SMPL.my_bev import MyBEV
 from scipy.spatial.transform import Rotation as R
 from util.image_process import blur_image
+from util.torch_device import ensure_compatible_cuda
 
 
 
@@ -58,19 +60,23 @@ class SMPL_Regressor:
         self.smpl.update()
 
     def create_bev_model(self,fix_body=False):
-        settings = bev.main.default_settings
+        settings = copy.deepcopy(bev.main.default_settings)
         settings.mode = 'video'
+        device = ensure_compatible_cuda()
+        settings.GPU = device.index if device.type == 'cuda' else -1
         bev_model = MyBEV(settings,fix_body=fix_body)
         return bev_model
 
     def create_romp_model(self):
-        settings = romp.main.default_settings
+        settings = copy.deepcopy(romp.main.default_settings)
         settings.temporal_optimize = False
         settings.calc_smpl = True
         settings.render_mesh = True
         settings.smooth_coeff = 3.0
         # settings is just a argparse Namespace. To change it, for instance, you can change mode via
         settings.mode = 'video'
+        device = ensure_compatible_cuda()
+        settings.GPU = device.index if device.type == 'cuda' else -1
         romp_model = MyROMP(settings)
         return romp_model
 
