@@ -33,11 +33,13 @@ def main():
             dataset = dataset + FullBodyGarment(extra_path, img_size=opt.img_size)
 
     dataset_size = len(dataset)
+    use_cuda = len(opt.gpu_ids) > 0 and torch.cuda.is_available()
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=opt.batchSize,
         shuffle=True,
-        num_workers=0,
+        num_workers=int(opt.nThreads),
+        pin_memory=use_cuda,
         drop_last=False,
     )
     model = create_model(opt)
@@ -52,13 +54,16 @@ def main():
     print_delta = total_steps % opt.print_freq
     save_delta = total_steps % opt.save_latest_freq
     iter_path = os.path.join(opt.checkpoints_dir, opt.name, "iter.txt")
+    device = torch.device("cuda") if use_cuda else torch.device("cpu")
 
     for epoch in range(start_epoch, opt.niter + opt.niter_decay + 1):
         epoch_start_time = time.time()
         if epoch != start_epoch:
             epoch_iter = epoch_iter % dataset_size
         for i, data in enumerate(dataloader):
-            garment_img, vm_img, dp_img, garment_mask = data
+            garment_img, vm_img, dp_img, garment_mask = [
+                tensor.to(device, non_blocking=True) for tensor in data
+            ]
 
             if total_steps % opt.print_freq == print_delta:
                 iter_start_time = time.time()

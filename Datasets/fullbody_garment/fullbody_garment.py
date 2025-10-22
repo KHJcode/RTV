@@ -118,12 +118,6 @@ class FullBodyGarment(data.Dataset):
             roi_mask_img = self.transform(Image.fromarray(roi_mask_img))
             roi_dp_img = self.transform(Image.fromarray(roi_dp_img))
 
-        if torch.cuda.is_available():
-            roi_garment_img = roi_garment_img.cuda()
-            roi_vm_img = roi_vm_img.cuda()
-            roi_mask_img = roi_mask_img.cuda()
-            roi_dp_img = roi_dp_img.cuda()
-
         return (
             self._normalize(roi_garment_img),
             self._normalize(roi_vm_img),
